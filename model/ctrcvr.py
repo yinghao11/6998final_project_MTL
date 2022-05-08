@@ -25,10 +25,11 @@ tf.debugging.set_log_device_placement(False)
 
 class CTCVRNet:
     def __init__(self):
-        pass
+        self.user_feature_num = 0
+        self.item_feature_num = 0
 
     def build_ctr_model(self, ctr_user_numerical_input, ctr_user_cate_input, ctr_item_numerical_input,
-                        ctr_item_cate_input, ctr_user_cate_feature_dict, ctr_item_cate_feature_dict):
+                        ctr_item_cate_input):
 
         user_feature = layers.Dropout(0.5)(ctr_user_numerical_input)
         user_feature = layers.BatchNormalization()(user_feature)
@@ -50,7 +51,7 @@ class CTCVRNet:
         return pred
 
     def build_cvr_model(self, cvr_user_numerical_input, cvr_user_cate_input, cvr_item_numerical_input,
-                        cvr_item_cate_input, cvr_user_cate_feature_dict, cvr_item_cate_feature_dict):
+                        cvr_item_cate_input):
 
         user_feature = layers.Dropout(0.5)(cvr_user_numerical_input)
         user_feature = layers.BatchNormalization()(user_feature)
@@ -71,23 +72,23 @@ class CTCVRNet:
                             name='cvr_output')(dense_feature)
         return pred
 
-    def build(self, user_cate_feature_dict, item_cate_feature_dict):
+    def build(self):
         # CTR model input
-        ctr_user_numerical_input = layers.Input(shape=(user_feature_num,))
-        ctr_user_cate_input = layers.Input(shape=(0,))
-        ctr_item_numerical_input = layers.Input(shape=(item_feature_num,))
-        ctr_item_cate_input = layers.Input(shape=(0,))
+        ctr_user_numerical_input = layers.Input(shape=(self.user_feature_num,))
+        ctr_user_cate_input = layers.Input(shape=(1,))
+        ctr_item_numerical_input = layers.Input(shape=(self.item_feature_num,))
+        ctr_item_cate_input = layers.Input(shape=(1,))
 
         # CVR model input
-        cvr_user_numerical_input = layers.Input(shape=(user_feature_num,))
-        cvr_user_cate_input = layers.Input(shape=(0,))
-        cvr_item_numerical_input = layers.Input(shape=(item_feature_num,))
-        cvr_item_cate_input = layers.Input(shape=(0,))
+        cvr_user_numerical_input = layers.Input(shape=(self.user_feature_num,))
+        cvr_user_cate_input = layers.Input(shape=(1,))
+        cvr_item_numerical_input = layers.Input(shape=(self.item_feature_num,))
+        cvr_item_cate_input = layers.Input(shape=(1,))
 
         ctr_pred = self.build_ctr_model(ctr_user_numerical_input, ctr_user_cate_input, ctr_item_numerical_input,
-                                        ctr_item_cate_input, user_cate_feature_dict, item_cate_feature_dict)
+                                        ctr_item_cate_input)
         cvr_pred = self.build_cvr_model(cvr_user_numerical_input, cvr_user_cate_input, cvr_item_numerical_input,
-                                        cvr_item_cate_input, user_cate_feature_dict, item_cate_feature_dict)
+                                        cvr_item_cate_input)
         ctcvr_pred = tf.multiply(ctr_pred, cvr_pred)
         model = Model(
             inputs=[ctr_user_numerical_input, ctr_user_cate_input, ctr_item_numerical_input, ctr_item_cate_input,
@@ -97,8 +98,13 @@ class CTCVRNet:
         return model
 
     def preprocess_data(self, data, labels):
-
+        _data = data.loc[(data[labels[0]] != -1) & (data[labels[1]] != -1)]
+        if _data.shape[0] <= 10:
+            data.replace(-1, 0, inplace=True)
+        else:
+            data = _data
         sample_num = data.shape[0]
+
         if sample_num % 2 == 1:
             sample_num -= 1
             data = data[1:]
@@ -110,11 +116,11 @@ class CTCVRNet:
         feature_num = data.shape[1]-len(labels)
 
         features = list(set(data.columns)-set(labels))
-        user_feature_num = feature_num//2
-        item_feature_num = feature_num-user_feature_num
+        self.user_feature_num = feature_num//2
+        self.item_feature_num = feature_num-self.user_feature_num
 
-        user_features = features[:user_feature_num]
-        item_features = features[user_feature_num:]
+        user_features = features[:self.user_feature_num]
+        item_features = features[self.user_feature_num:]
 
         data0 = data[:half_data_num]
         data1 = data[half_data_num:]
@@ -174,16 +180,14 @@ class CTCVRNet:
         :return: None
         """
         cate_feature_dict = {}
-        user_cate_feature_dict = {}
-        item_cate_feature_dict = {}
+
         train_data, val_data, test_data = self.preprocess_data(data, labels)
 
-        ctcvr = CTCVRNet()
-        ctcvr_model = ctcvr.build(
-            user_cate_feature_dict, item_cate_feature_dict)
-        opt = optimizers.Adam(lr=0.003, decay=0.0001)
-        ctcvr_model.compile(optimizer=opt, loss=["binary_crossentropy", "binary_crossentropy"], loss_weights=[1.0, 1.0],
-                            metrics=[tf.keras.metrics.AUC()])
+#         ctcvr = CTCVRNet()
+        self.ctcvr_model = self.build()
+        opt = optimizers.Adam(learning_rate=0.003, decay=0.0001)
+        self.ctcvr_model.compile(optimizer=opt, loss=["binary_crossentropy", "binary_crossentropy"], loss_weights=[1.0, 1.0],
+                                 metrics=[tf.keras.metrics.AUC()])
 
         # keras model save path
         filepath = "esmm_best.h5"
@@ -192,9 +196,9 @@ class CTCVRNet:
         checkpoint = ModelCheckpoint(
             filepath, monitor='val_loss', verbose=0, save_best_only=True, mode='min')
         reduce_lr = ReduceLROnPlateau(
-            monitor='val_loss', factor=0.8, patience=2, min_lr=0.0001, verbose=0)
+            monitor='val_loss', factor=0.8, patience=2, min_lr=0.0001, verbose=verbose)
         earlystopping = EarlyStopping(
-            monitor='val_loss', min_delta=0.0001, patience=8, verbose=0, mode='auto')
+            monitor='val_loss', min_delta=0.0001, patience=8, verbose=verbose, mode='auto')
         callbacks = [checkpoint, reduce_lr, earlystopping]
 
         # load data
@@ -211,17 +215,17 @@ class CTCVRNet:
             cvr_item_numerical_feature_test, cvr_item_cate_feature_test, ctr_target_test, cvr_target_test = test_data
 
         # model train
-        history = ctcvr_model.fit([ctr_user_numerical_feature_train, ctr_user_cate_feature_train, ctr_item_numerical_feature_train,
-                                  ctr_item_cate_feature_train, cvr_user_numerical_feature_train, cvr_user_cate_feature_train,
-                                  cvr_item_numerical_feature_train,
-                                  cvr_item_cate_feature_train], [ctr_target_train, cvr_target_train], batch_size=batchsize, epochs=epoch,
-                                  validation_data=(
+        history = self.ctcvr_model.fit([ctr_user_numerical_feature_train, ctr_user_cate_feature_train, ctr_item_numerical_feature_train,
+                                        ctr_item_cate_feature_train, cvr_user_numerical_feature_train, cvr_user_cate_feature_train,
+                                        cvr_item_numerical_feature_train,
+                                        cvr_item_cate_feature_train], [ctr_target_train, cvr_target_train], batch_size=batchsize, epochs=epoches,
+                                       validation_data=(
             [ctr_user_numerical_feature_val, ctr_user_cate_feature_val, ctr_item_numerical_feature_val,
              ctr_item_cate_feature_val, cvr_user_numerical_feature_val, cvr_user_cate_feature_val,
              cvr_item_numerical_feature_val,
              cvr_item_cate_feature_val], [ctr_target_val, cvr_target_val]),
             #  callbacks=callbacks,
-            verbose=1,
+            verbose=verbose,
             shuffle=True)
 
         plt.figure()
@@ -231,9 +235,9 @@ class CTCVRNet:
         plt.ylabel('Loss')
         plt.show()
 
-        predictions = ctcvr_model.predict([ctr_user_numerical_feature_test, ctr_user_cate_feature_test, ctr_item_numerical_feature_test,
-                                          ctr_item_cate_feature_test, cvr_user_numerical_feature_test, cvr_user_cate_feature_test,
-                                          cvr_item_numerical_feature_test, cvr_item_cate_feature_test])
+        predictions = self.ctcvr_model.predict([ctr_user_numerical_feature_test, ctr_user_cate_feature_test, ctr_item_numerical_feature_test,
+                                                ctr_item_cate_feature_test, cvr_user_numerical_feature_test, cvr_user_cate_feature_test,
+                                                cvr_item_numerical_feature_test, cvr_item_cate_feature_test])
 
         FPR, TPR, threshold = roc_curve(
             ctr_target_test, predictions[0].reshape(-1))

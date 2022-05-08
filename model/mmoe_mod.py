@@ -146,7 +146,7 @@ class mmoe_model():
                  color='red', label='y1_val_loss')
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
-        plt.title("Moe Train result - Loss(mse)")
+        plt.title("MMoe Train result - Loss(mse)")
         plt.legend()
 
         if "accuracy" in plot_list:
@@ -164,7 +164,7 @@ class mmoe_model():
 
             plt.xlabel("Epochs")
             plt.ylabel("Accuracy")
-            plt.title("Moe Train result - Accuracy")
+            plt.title("MMoe Train result - Accuracy")
             plt.legend()
 
         if "auc" in plot_list:
