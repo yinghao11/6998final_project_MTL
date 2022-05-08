@@ -57,3 +57,11 @@ After comparing different result graphs of different models using different data
 
 4) Multitask model did helps to alleviate the data lacking problem, by merging the dataset from related tasks.
 However, if subtasks are competing, the models switch between optimizing subtasks so the result is not stable even worse than single task. So we need to find further method to deal with.
+
+
+## Reference and related material.
+Simple multi-task learning model example:  https://www.jianshu.com/p/5bd287f14f35 
+The combination of CVR tasks and CTR tasks: https://github.com/busesese/ESMM 
+Keras MMOE model: https://github.com/drawbridge/keras-mmoe 
+Prediction of user gender based on user behavior: https://zhuanlan.zhihu.com/p/166710532 
+
